@@ -1,0 +1,72 @@
+# Companies to monitor. Each source is just a feed (RSS or Atom).
+# Blogs/product announcements + SEC filings (EDGAR atom) + GitHub releases all
+# reduce to "a feed", so one fetcher handles every signal type.
+#
+# Feeds change over time — if one stops returning items, swap the URL here.
+# No code change needed.
+
+companies:
+  - name: Anthropic
+    ticker: null
+    feeds:
+      - https://www.anthropic.com/rss.xml           # news / product
+      - https://github.com/anthropics/anthropic-sdk-python/releases.atom  # shipping cadence
+
+  - name: OpenAI
+    ticker: null
+    feeds:
+      - https://openai.com/news/rss.xml
+
+  - name: NVIDIA
+    ticker: NVDA
+    feeds:
+      - https://blogs.nvidia.com/feed/
+      - https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=NVDA&type=8-K&output=atom  # earnings/filings
+
+  - name: AMD
+    ticker: AMD
+    feeds:
+      - https://ir.amd.com/rss/news-releases.xml   # product + earnings press releases
+      - https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0000002488&type=8-K&output=atom  # numeric CIK (ticker lookup is unreliable)
+
+  - name: Google
+    ticker: GOOGL
+    feeds:
+      - https://blog.google/technology/ai/rss/
+      - https://deepmind.google/blog/rss.xml
+      - https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=GOOGL&type=8-K&output=atom
+
+  - name: AWS
+    ticker: AMZN
+    feeds:
+      - https://aws.amazon.com/blogs/machine-learning/feed/
+      - https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=AMZN&type=8-K&output=atom
+
+  # Competitor watch. Facebook has no native RSS — generate a feed URL for the
+  # page at rss.app / fetchrss.com and paste it below (replace the placeholder).
+  # type: competitor switches the analysis to threat/opportunity framing.
+  - name: Social Eagle
+    ticker: null
+    type: competitor
+    feeds:
+      - https://rss.app/feeds/REPLACE_WITH_YOUR_FEED_ID.xml   # https://www.facebook.com/SocialEagleOfficial/
+
+  # Ad-library watch: the ads this page is actively running. No RSS / no free
+  # official API — needs a third-party scraper (set APIFY_TOKEN). Skipped cleanly
+  # if the token is absent. See README → Ad-library monitoring.
+  - name: Social Eagle Ads
+    type: competitor
+    kind: ad_library
+    platform: meta
+    page_id: "302166536315310"
+    country: IN
+
+  # Google Ads Transparency Center — same story: no RSS / no official API, needs
+  # a scraper (set APIFY_TOKEN + APIFY_ACTOR_GOOGLE). advertiser_id + region come
+  # from the transparency URL.
+  - name: Social Eagle (Google Ads)
+    type: competitor
+    kind: ad_library
+    platform: google
+    advertiser_id: AR17941963937574551553
+    region: IN

@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Watchdog — AI market intelligence</title>
+<style>
+  :root {
+    --paper: #e9e6e0; --ink: #14151a; --dim: #6d6a63; --line: #d7d2c8;
+    --accent: #1b2fe8; --accent2: #4a63f0; --chip: #f3f1ea;
+    --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #050507; color: var(--ink);
+    font: 16px/1.62 Georgia, "Times New Roman", serif;
+    -webkit-font-smoothing: antialiased;
+    padding: 16px;
+  }
+  /* rounded paper panel on black, framed like the reference */
+  .panel {
+    position: relative; max-width: 960px; margin: 0 auto;
+    min-height: calc(100vh - 32px);
+    background: var(--paper); border: 1px solid #0c0c0f;
+    border-radius: 22px; overflow: hidden;
+    box-shadow: 0 30px 80px -30px rgba(0,0,0,.7);
+  }
+  .panel::after {  /* film grain over the whole paper */
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background-image: var(--grain); background-size: 220px;
+    opacity: .16; mix-blend-mode: soft-light; z-index: 3;
+  }
+
+  /* Pryzm hero: dark core -> cobalt -> light edge, pastel warmth bottom-left */
+  .hero {
+    position: relative; padding: 92px 40px 80px; text-align: center;
+    color: #f5f4ef; isolation: isolate;
+    background:
+      radial-gradient(46% 44% at 24% 96%, rgba(240,184,150,.85), transparent 60%),
+      radial-gradient(42% 40% at 44% 104%, rgba(226,150,201,.7), transparent 62%),
+      radial-gradient(52% 48% at 96% 8%, rgba(198,183,236,.8), transparent 60%),
+      radial-gradient(78% 78% at 50% 40%, #050512 0%, #0a1546 20%, #1631e8 44%, #4a72f4 60%, #c9d4f4 80%, var(--paper) 100%);
+  }
+  .hero::after {  /* extra grain, stronger on the bloom */
+    content: ""; position: absolute; inset: 0; pointer-events: none; z-index: -1;
+    background-image: var(--grain); background-size: 200px;
+    opacity: .34; mix-blend-mode: overlay;
+  }
+  .kicker { font: 600 12px/1 ui-monospace, monospace; letter-spacing: .28em;
+            text-transform: uppercase; color: rgba(245,244,239,.82); }
+  h1 { font: 400 clamp(52px, 11vw, 104px)/.95 Georgia, serif; letter-spacing: -.02em;
+       margin: 20px 0 18px; text-shadow: 0 2px 40px rgba(5,8,40,.5); }
+  .sub { color: rgba(245,244,239,.9); font-size: 18px; font-style: italic;
+         max-width: 44ch; margin: 0 auto; }
+
+  .body { position: relative; z-index: 2; padding: 8px 40px 110px; }
+  .filters { display: flex; flex-wrap: wrap; gap: 8px; margin: 34px 0 4px; }
+  .chip {
+    font: 600 12px/1 ui-monospace, monospace; letter-spacing: .08em;
+    color: var(--dim); background: var(--chip); border: 1px solid var(--line);
+    padding: 9px 15px; border-radius: 999px; cursor: pointer; transition: .15s;
+  }
+  .chip:hover { color: var(--ink); border-color: #bdb7ab; }
+  .chip.on { color: #fff; background: var(--accent); border-color: var(--accent); }
+
+  .card { border-bottom: 1px solid var(--line); padding: 34px 0; }
+  .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+          font: 600 11px/1 ui-monospace, monospace; letter-spacing: .12em;
+          text-transform: uppercase; color: var(--dim); margin-bottom: 14px; }
+  .tag { color: var(--accent2); }
+  .stars { color: var(--accent); letter-spacing: .1em; }
+  .card h2 { font: 400 26px/1.28 Georgia, serif; letter-spacing: -.01em; margin-bottom: 16px; }
+  .card h2 a { color: var(--ink); text-decoration: none; border-bottom: 1px solid transparent; }
+  .card h2 a:hover { border-color: var(--accent); }
+  .row { display: grid; grid-template-columns: 100px 1fr; gap: 14px; margin-top: 12px; }
+  .row .lbl { font: 600 11px/1.7 ui-monospace, monospace; letter-spacing: .1em;
+              text-transform: uppercase; color: var(--accent); }
+  .row .val { color: #34332e; }
+  .summary { color: var(--dim); font-style: italic; margin-bottom: 6px; }
+  .empty { color: var(--dim); font-style: italic; padding: 60px 0; text-align: center; }
+  footer { margin-top: 52px; color: var(--dim); font: 13px/1.6 ui-monospace, monospace; }
+  @media (max-width: 560px) {
+    .hero { padding: 64px 24px 56px; } .body { padding: 8px 24px 80px; }
+    .row { grid-template-columns: 1fr; gap: 4px; }
+  }
+</style>
+</head>
+<body>
+<div class="panel">
+  <div class="hero">
+    <div class="kicker">AI Market Intelligence</div>
+    <h1>Watchdog</h1>
+    <p class="sub">What the giants just moved, what it signals next — and what your competitors are up to.</p>
+  </div>
+
+  <div class="body">
+    <div class="filters" id="filters"></div>
+    <div id="feed"></div>
+    <footer id="foot">Loading signals…</footer>
+  </div>
+</div>
+
+<script>
+const stars = n => "★".repeat(n) + "☆".repeat(5 - n);
+let ALL = [], active = "All";
+
+function render() {
+  const feed = document.getElementById("feed");
+  const items = active === "All" ? ALL : ALL.filter(i => i.company === active);
+  if (!items.length) {
+    feed.innerHTML = '<div class="empty">No signals yet. The monitor writes here on its next run.</div>';
+    return;
+  }
+  feed.innerHTML = items.map(i => `
+    <article class="card">
+      <div class="meta">
+        <span>${i.company}</span>·
+        <span class="tag">${i.category || "Other"}</span>·
+        <span class="stars">${stars(i.importance || 1)}</span>·
+        <span>${(i.published || "").slice(0, 16)}</span>
+      </div>
+      <h2><a href="${i.url}" target="_blank" rel="noopener">${i.title}</a></h2>
+      <p class="summary">${i.summary || ""}</p>
+      <div class="row"><span class="lbl">Signal</span><span class="val">${i.signal || ""}</span></div>
+      <div class="row"><span class="lbl">Impact</span><span class="val">${i.business_impact || ""}</span></div>
+    </article>`).join("");
+}
+
+function buildFilters() {
+  const companies = ["All", ...[...new Set(ALL.map(i => i.company))].sort()];
+  document.getElementById("filters").innerHTML = companies
+    .map(c => `<button class="chip${c === active ? " on" : ""}" data-c="${c}">${c}</button>`).join("");
+  document.querySelectorAll(".chip").forEach(b =>
+    b.onclick = () => { active = b.dataset.c; buildFilters(); render(); });
+}
+
+fetch("./data/insights.json")
+  .then(r => r.json())
+  .then(data => {
+    ALL = data;
+    document.getElementById("foot").textContent =
+      `${data.length} signals tracked · updated ${(data[0]?.analyzed_at || "").slice(0, 10) || "—"} · autonomous daily monitor`;
+    buildFilters();
+    render();
+  })
+  .catch(() => document.getElementById("foot").textContent =
+    "Could not load data/insights.json — serve over http (python -m http.server), not file://.");
+</script>
+</body>
+</html>

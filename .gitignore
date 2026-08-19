@@ -3,3 +3,4 @@ __pycache__/
 .env
 .venv/
 venv/
+data/leads.csv   # scraped leads may contain PII — never commit to a public repo

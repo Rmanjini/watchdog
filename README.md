@@ -89,6 +89,24 @@ Activate it by setting a scraper token; without it the source is skipped:
 Paid + ToS gray-area, like any Ad Library scraper. If it errors, that source is
 skipped, not fatal.
 
+## More monitors: reviews, rank, price/offer, leads
+
+Beyond feeds and ads, four more source `kind`s (templates are commented in
+`sources.yaml`):
+
+| kind | What it does | Needs a scraper? |
+|---|---|---|
+| `reviews` | New reviews → signals (sentiment, severity, what to do) | Yes — `endpoint` |
+| `rank` | Emits a signal when a tracked keyword's Google position moves | Yes — `endpoint` |
+| `page_watch` | Diffs a competitor page's content; alerts on change (price/offer) | **No** — fetches + diffs itself |
+| `leads` | Bulk-exports scraped leads to `data/leads.csv` (deduped by email) | Yes — `endpoint` |
+
+`page_watch` works out of the box. The others POST to a self-hosted scraper
+workflow (a [Figranium](https://github.com/figranium/figranium) endpoint, or any
+service that returns JSON rows) — set its URL in the source's `endpoint`. Field
+mapping is lenient; confirm it against one real run. Leads land in a CSV, not the
+dashboard — they're export, not intelligence.
+
 ## Notes
 
 Feeds are best-effort and change over time; a dead feed is skipped, not fatal.

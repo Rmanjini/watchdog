@@ -70,3 +70,36 @@ companies:
     platform: google
     advertiser_id: AR17941963937574551553
     region: IN
+
+  # --- More monitors (uncomment + fill in) ---------------------------------
+  # reviews / rank / leads need a self-hosted scraper workflow (e.g. Figranium)
+  # that returns JSON — put its URL in `endpoint`. page_watch needs no scraper.
+
+  # Review watchdog — new reviews become signals (sentiment + what to do).
+  # - name: Our Reviews (Google)
+  #   type: competitor
+  #   kind: reviews
+  #   endpoint: http://localhost:8080/api/run/google-reviews   # Figranium workflow
+  #   url: https://www.google.com/maps/place/YOUR_BUSINESS/reviews
+
+  # Rank / SERP tracker — emits a signal when a keyword's position moves.
+  # - name: SEO Ranks
+  #   kind: rank
+  #   endpoint: http://localhost:8080/api/run/google-serp
+  #   domain: socialeagle.ai
+  #   keywords:
+  #     - ai marketing agency india
+  #     - performance marketing agency
+
+  # Price & offer monitor — diffs a page's content, no scraper needed.
+  # - name: Competitor Pricing
+  #   type: competitor
+  #   kind: page_watch
+  #   urls:
+  #     - https://competitor.com/pricing
+
+  # Lead scraper — exports to data/leads.csv (NOT the dashboard).
+  # - name: Directory Leads
+  #   kind: leads
+  #   endpoint: http://localhost:8080/api/run/lead-scraper
+  #   url: https://some-directory.com/agencies?city=chennai

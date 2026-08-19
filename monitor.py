@@ -26,6 +26,9 @@ ROOT = Path(__file__).parent
 DATA = ROOT / "data"
 SEEN_FILE = DATA / "seen.json"
 INSIGHTS_FILE = DATA / "insights.json"
+WATCH_FILE = DATA / "watch_state.json"   # page_watch: url -> content hash
+RANKS_FILE = DATA / "ranks.json"         # rank: "company|keyword" -> position
+LEADS_FILE = DATA / "leads.csv"          # leads: exported rows (not signals)
 
 # Cap analysis per run so a backlog (or a misbehaving feed) can't run up a bill.
 # ponytail: fixed cap; make it an env var if runs ever legitimately exceed it.
@@ -108,20 +111,186 @@ def fetch_ads(company: dict, seen: set[str]) -> list[dict]:
     return normalize_ads(rows, company, seen)
 
 
+# ---- extra monitors: reviews, rank, price/offer, leads ------------------
+# All scraping kinds POST to a self-hosted workflow endpoint (e.g. Figranium)
+# that returns JSON rows. One adapter, tolerant parsers. page_watch needs no
+# scraper — it fetches the page itself and diffs the content.
+
+def scrape(endpoint: str, payload: dict, timeout: int = 300):
+    import json as _json
+    import urllib.request
+    req = urllib.request.Request(
+        endpoint, data=_json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return _json.loads(r.read())
+
+
+def content_hash(html: str) -> str:
+    """Tag-stripped, whitespace-collapsed hash — stable across cosmetic markup."""
+    import hashlib
+    import re
+    text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html)).strip()
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def normalize_reviews(rows: list[dict], company: dict, seen: set[str]) -> list[dict]:
+    import hashlib
+    items = []
+    for r in rows:
+        text = r.get("text") or r.get("review") or r.get("body") or ""
+        rid = str(r.get("review_id") or r.get("id")
+                  or hashlib.md5(((r.get("author") or "") + text).encode()).hexdigest()[:12])
+        uid = f"review:{company['name']}:{rid}"
+        if uid in seen:
+            continue
+        seen.add(uid)
+        rating = r.get("rating") or r.get("stars") or "?"
+        first = (text.strip().splitlines() or ["(no text)"])[0][:90]
+        items.append({
+            "uid": uid, "company": company["name"], "ticker": None,
+            "type": company.get("type", "competitor"), "kind": "reviews",
+            "title": f"{rating}★ — {first}",
+            "url": r.get("url") or company.get("url", ""),
+            "published": r.get("date") or r.get("published") or "",
+            "raw": str(text)[:4000],
+        })
+    return items
+
+
+def fetch_reviews(company: dict, seen: set[str]) -> list[dict]:
+    ep = company.get("endpoint")
+    if not ep:
+        print(f"  {company['name']}: no scraper endpoint — skipping reviews.", file=sys.stderr)
+        return []
+    return normalize_reviews(scrape(ep, {"url": company.get("url", "")}), company, seen)
+
+
+def rank_position(domain: str, results: list[dict]):
+    for i, r in enumerate(results, 1):
+        if domain in (r.get("url") or r.get("link") or ""):
+            return i
+    return None
+
+
+def fetch_rank(company: dict, seen: set[str]) -> list[dict]:
+    ep = company.get("endpoint")
+    if not ep:
+        print(f"  {company['name']}: no scraper endpoint — skipping rank.", file=sys.stderr)
+        return []
+    state = read_json(RANKS_FILE, {})
+    items = []
+    for kw in company.get("keywords", []):
+        try:
+            pos = rank_position(company["domain"], scrape(ep, {"query": kw}))
+        except Exception as e:  # noqa: BLE001
+            print(f"  ! rank fetch failed ({kw}): {e}", file=sys.stderr)
+            continue
+        key = f"{company['name']}|{kw}"
+        prev = state.get(key)
+        state[key] = pos
+        if prev is None or pos == prev:
+            continue  # baseline, or no movement
+        items.append({
+            "uid": f"rank:{key}:{prev}->{pos}", "company": company["name"], "ticker": None,
+            "type": company.get("type", "industry"), "kind": "rank",
+            "title": f'"{kw}": #{prev} → #{pos if pos else "off top results"}',
+            "url": "https://www.google.com/search?q=" + kw.replace(" ", "+"),
+            "published": "",
+            "raw": f"Keyword '{kw}' for {company['domain']} moved from position {prev} to {pos}.",
+        })
+    write_json(RANKS_FILE, state)
+    return items
+
+
+def fetch_page_watch(company: dict, seen: set[str]) -> list[dict]:
+    import re
+    import urllib.request
+    state = read_json(WATCH_FILE, {})
+    items = []
+    for url in company.get("urls", []):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+            html = urllib.request.urlopen(req, timeout=60).read().decode("utf-8", "ignore")
+        except Exception as e:  # noqa: BLE001
+            print(f"  ! page fetch failed ({url}): {e}", file=sys.stderr)
+            continue
+        h = content_hash(html)
+        prev = state.get(url)
+        state[url] = h
+        if prev and prev != h:
+            text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html)).strip()
+            items.append({
+                "uid": f"watch:{url}:{h[:10]}", "company": company["name"], "ticker": None,
+                "type": company.get("type", "competitor"), "kind": "page_watch",
+                "title": f"Page changed: {url}", "url": url, "published": "",
+                "raw": text[:4000],
+            })
+    write_json(WATCH_FILE, state)
+    return items
+
+
+def collect_leads(company: dict) -> int:
+    """Bulk export to data/leads.csv (deduped by email). Not a signal — leads
+    don't belong on the intelligence dashboard."""
+    ep = company.get("endpoint")
+    if not ep:
+        print(f"  {company['name']}: no scraper endpoint — skipping leads.", file=sys.stderr)
+        return 0
+    import csv
+    rows = scrape(ep, {"url": company.get("url", ""), "query": company.get("query", "")})
+    seen_emails = set()
+    if LEADS_FILE.exists():
+        with open(LEADS_FILE, newline="") as f:
+            seen_emails = {r["email"] for r in csv.DictReader(f) if r.get("email")}
+    fields = ["name", "email", "company", "phone", "url", "captured_at"]
+    write_header = not LEADS_FILE.exists()
+    DATA.mkdir(parents=True, exist_ok=True)
+    new = 0
+    with open(LEADS_FILE, "a", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=fields)
+        if write_header:
+            w.writeheader()
+        for r in rows:
+            email = (r.get("email") or "").strip().lower()
+            if email and email in seen_emails:
+                continue
+            if email:
+                seen_emails.add(email)
+            w.writerow({
+                "name": r.get("name") or r.get("full_name") or "",
+                "email": email,
+                "company": r.get("company") or r.get("organization") or "",
+                "phone": r.get("phone") or "",
+                "url": r.get("url") or r.get("profile_url") or company.get("url", ""),
+                "captured_at": datetime.now(timezone.utc).isoformat(),
+            })
+            new += 1
+    return new
+
+
 def fetch_new_items(companies: list[dict], seen: set[str]) -> list[dict]:
-    """Return new items (feed entries or ads) as flat dicts. Skips anything
-    already seen and any source that fails (one bad source can't kill the run)."""
+    """Return new items (feeds, ads, reviews, rank moves, page changes) as flat
+    dicts. Skips seen items and any source that fails (one bad source can't kill
+    the run). Leads are handled separately — they're export, not signals."""
     import feedparser
 
+    fetchers = {
+        "ad_library": fetch_ads, "reviews": fetch_reviews,
+        "rank": fetch_rank, "page_watch": fetch_page_watch,
+    }
     items: list[dict] = []
     for company in companies:
-        if company.get("kind") == "ad_library":
+        kind = company.get("kind")
+        if kind == "leads":
+            continue  # exported in run(), not a signal source
+        if kind in fetchers:
             try:
-                items += fetch_ads(company, seen)
+                items += fetchers[kind](company, seen)
             except Exception as e:  # noqa: BLE001
-                print(f"  ! {company['name']} ad fetch error: {e}", file=sys.stderr)
+                print(f"  ! {company['name']} {kind} error: {e}", file=sys.stderr)
             continue
-        for url in company["feeds"]:
+        for url in company.get("feeds", []):
             try:
                 parsed = feedparser.parse(url, agent=USER_AGENT)
             except Exception as e:  # noqa: BLE001 - one bad feed must not abort
@@ -180,12 +349,31 @@ def build_analyzer():
             "gap to exploit (business_impact). Use category for the ad's angle "
             "(e.g. Offer, Lead-magnet, Social-proof, Urgency, Authority)."
         ),
+        "review": (
+            "You are a reputation analyst. This is a customer review. Summarize the specific "
+            "praise or complaint, judge its severity (importance), and say exactly what to do "
+            "(business_impact): reply, fix a process, or amplify it. category = sentiment "
+            "(Positive / Negative / Mixed)."
+        ),
+        "rank": (
+            "You are an SEO analyst. This is a search-ranking movement for a keyword we track. "
+            "State what moved and the likely cause (signal), and the concrete action — which "
+            "page to fix, refresh, or build links to (business_impact). category = Ranking. "
+            "importance = how big/valuable the move is."
+        ),
+        "price": (
+            "You are a competitive analyst. A competitor's page changed. From the page text, "
+            "infer WHAT likely changed — price, offer, packaging, or positioning (summary + "
+            "signal) — and how we should respond (business_impact). category = Pricing / Offer / "
+            "Positioning."
+        ),
     }
+    KIND_LENS = {"ad_library": "ad", "reviews": "review", "rank": "rank", "page_watch": "price"}
 
     client = anthropic.Anthropic()
 
     def analyze(item: dict) -> dict:
-        lens_key = "ad" if item.get("kind") == "ad_library" else item["type"]
+        lens_key = KIND_LENS.get(item.get("kind")) or item["type"]
         lens = LENS.get(lens_key, LENS["industry"])
         prompt = (
             f"{lens}\n\n"
@@ -268,6 +456,18 @@ def send_email(html: str, count: int) -> None:
 
 def run(dry_run: bool) -> None:
     companies = load_sources()
+
+    # Leads are bulk export (CSV), independent of the signal pipeline.
+    leads = 0
+    for c in companies:
+        if c.get("kind") == "leads":
+            try:
+                leads += collect_leads(c)
+            except Exception as e:  # noqa: BLE001
+                print(f"  ! {c['name']} leads error: {e}", file=sys.stderr)
+    if leads:
+        print(f"Captured {leads} new leads → {LEADS_FILE.name}")
+
     seen = set(read_json(SEEN_FILE, []))
     items = fetch_new_items(companies, seen)
     print(f"Found {len(items)} new items.")
@@ -322,6 +522,16 @@ def selftest() -> None:
     assert len(ads) == 2, ads
     assert ads[0]["title"] == "Free webinar" and ads[0]["kind"] == "ad_library"
     assert normalize_ads(rows, comp, s) == []  # all seen now
+    # content_hash ignores markup + whitespace.
+    assert content_hash("<b>Hi</b>   <i>x</i>") == content_hash("Hi x")
+    assert content_hash("Hi x") != content_hash("Hi y")
+    # rank_position finds the domain's slot, None if absent.
+    res = [{"url": "https://a.com"}, {"link": "https://me.com/x"}, {"url": "https://c.com"}]
+    assert rank_position("me.com", res) == 2 and rank_position("zzz.com", res) is None
+    # Reviews dedupe by id and derive a rating title.
+    rev = normalize_reviews([{"id": "9", "rating": 2, "text": "slow support"}],
+                            {"name": "Y", "type": "competitor"}, set())
+    assert len(rev) == 1 and rev[0]["kind"] == "reviews" and "2★" in rev[0]["title"]
     # Digest renders the title, company, and impact for a sample insight.
     html = render_digest([{
         "company": "NVIDIA", "category": "Model", "importance": 5,
